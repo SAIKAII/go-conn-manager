@@ -8,13 +8,14 @@ func NewServer(m multiplexing) *server {
 	return &server{multi: m}
 }
 
-func (s *server) Start(ipAddr string, port, headerLen, readMaxLen, writeMaxLen int)  {
+func (s *server) Start(ipAddr string, port, headerLen, readMaxLen, writeMaxLen int, h Handler) {
 	InitPackage(headerLen, readMaxLen, writeMaxLen)
-	err := s.multi.init(ipAddr, port)
+	s.multi.SetHandler(h)
+	err := s.multi.Init(ipAddr, port)
 	if err != nil {
 		panic(err)
 	}
 
-	go s.multi.waitEvent()
-	s.multi.handleEvent()
+	go s.multi.WaitEvent()
+	s.multi.HandleEvent()
 }

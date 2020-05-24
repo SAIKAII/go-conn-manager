@@ -15,19 +15,6 @@ const (
 	Epoll_CTL_Read     = syscall.EPOLLIN | syscall.EPOLLET | syscall.EPOLLPRI
 )
 
-type eventType int8
-
-const (
-	Event_Type_Connect eventType = iota
-	Event_Type_Close
-	Event_Type_In
-)
-
-type event struct {
-	fd    int32
-	event eventType
-}
-
 type Epoll struct {
 	epollFd  int
 	listenFd int
@@ -51,7 +38,7 @@ func (e *Epoll) SetHandler(h Handler) {
 }
 
 // 创建一个Epoll实例
-func (e *Epoll) init(ipAddr string, port int) error {
+func (e *Epoll) Init(ipAddr string, port int) error {
 	// Specifying  a  protocol  of  0  causes Socket() to use an unspecified
 	// default protocol appropriate for the requested socket type.
 	listenFd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
@@ -103,7 +90,7 @@ func (e *Epoll) init(ipAddr string, port int) error {
 	return nil
 }
 
-func (e *Epoll) waitEvent() {
+func (e *Epoll) WaitEvent() {
 	for {
 		select {
 		case <-e.stop:
@@ -134,7 +121,7 @@ func (e *Epoll) waitEvent() {
 	}
 }
 
-func (e *Epoll) handleEvent() error {
+func (e *Epoll) HandleEvent() error {
 	for ev := range e.revents {
 		if ev.event == Event_Type_Connect {
 			nfd, sa, err := syscall.Accept(int(ev.fd))
@@ -144,21 +131,20 @@ func (e *Epoll) handleEvent() error {
 			c := &Conn{
 				fd:       nfd,
 				SockAddr: sa,
-				epoll:    e,
 				lastTime: time.Now().Unix(),
 			}
-			err = e.addRead(nfd, c)
+			err = e.AddRead(nfd, c)
 			if err != nil {
 				continue
 			}
 		} else if ev.event == Event_Type_Close {
 			nfd := int(ev.fd)
-			err := e.del(nfd)
+			err := e.Del(nfd)
 			if err != nil {
 				continue
 			}
 		} else if ev.event == Event_Type_In {
-			err := UnpackFromFD(e.conns.GetConn(int(ev.fd)))
+			err := UnpackFromFD(e.conns.GetConn(int(ev.fd)), e.handler.OnMessage)
 			if err != nil {
 				continue
 			}
@@ -170,7 +156,7 @@ func (e *Epoll) handleEvent() error {
 }
 
 // AddRead 把套接字加入监听，创建conn，并调用OnConnect回调函数
-func (e *Epoll) addRead(nfd int, c *Conn) error {
+func (e *Epoll) AddRead(nfd int, c *Conn) error {
 	err := syscall.EpollCtl(e.epollFd, syscall.EPOLL_CTL_ADD, nfd, &syscall.EpollEvent{
 		Events: Epoll_CTL_Read,
 		Fd:     int32(nfd),
@@ -186,14 +172,14 @@ func (e *Epoll) addRead(nfd int, c *Conn) error {
 }
 
 // Del 从监听中删除套接字，删除conn，并调用OnClose回调函数
-func (e *Epoll) del(nfd int) error {
+func (e *Epoll) Del(nfd int) error {
 	err := syscall.EpollCtl(e.epollFd, syscall.EPOLL_CTL_DEL, nfd, nil)
 	if err != nil {
 		return err
 	}
 
-	e.conns.DelConn(nfd)
 	e.handler.OnClose(e.conns.GetConn(nfd))
+	e.conns.DelConn(nfd)
 
 	return nil
 }

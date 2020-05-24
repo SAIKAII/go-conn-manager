@@ -11,21 +11,11 @@ type Conn struct {
 	mu       sync.Mutex
 	fd       int
 	SockAddr syscall.Sockaddr
-	epoll    *Epoll
 	lastTime int64 // 该套接字最后一次通信时间
 }
 
-func (c *Conn) Read() error {
-	c.mu.Lock()
-	c.mu.Unlock()
-
+func (c *Conn) UpdateLastTime() {
 	c.lastTime = time.Now().Unix()
-	err := UnpackFromFD(c)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (c *Conn) Close() {

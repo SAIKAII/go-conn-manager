@@ -3,7 +3,7 @@ package go_conn_manager
 import "sync"
 
 type ConnManager struct {
-	mu sync.RWMutex
+	mu    sync.RWMutex
 	conns map[int]*Conn
 }
 
@@ -15,7 +15,7 @@ func NewConnManager() *ConnManager {
 }
 
 // AddConn 添加指定key的Conn实例到管理器中，若该key已关联Conn实例，则被更换为新的
-func (cm *ConnManager) AddConn(key int, conn *Conn)  {
+func (cm *ConnManager) AddConn(key int, conn *Conn) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 

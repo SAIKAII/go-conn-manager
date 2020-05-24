@@ -14,6 +14,8 @@ var (
 	packageWriteMaxLen int
 )
 
+type HandleMessage func(*Conn, []byte)
+
 var (
 	readBufferPool  *sync.Pool
 	writeBufferPool *sync.Pool
@@ -41,12 +43,12 @@ func Packet(data []byte) []byte {
 	dataLen := len(data)
 	retData := make([]byte, packageHeaderLen+dataLen)
 	binary.BigEndian.PutUint16(retData[0:packageHeaderLen], uint16(dataLen))
-	n :=  copy(retData[packageHeaderLen:], data)
+	n := copy(retData[packageHeaderLen:], data)
 	if n != dataLen {
 		return nil
 	}
 
-	return retData[0:packageHeaderLen+n]
+	return retData[0 : packageHeaderLen+n]
 }
 
 // 解包，失败返回nil
@@ -61,7 +63,7 @@ func Unpack(data []byte) []byte {
 }
 
 // 读取、解包并处理
-func UnpackFromFD(c *Conn) error {
+func UnpackFromFD(c *Conn, h HandleMessage) error {
 	readBuffer := readBufferPool.Get()
 	defer readBufferPool.Put(readBuffer)
 
@@ -93,7 +95,8 @@ func UnpackFromFD(c *Conn) error {
 			return err
 		}
 
-		c.epoll.handler.OnMessage(c, byte[packageHeaderLen:packageHeaderLen+dataLen])
+		c.UpdateLastTime()
+		h(c, byte[packageHeaderLen:packageHeaderLen+dataLen])
 	}
 }
 
