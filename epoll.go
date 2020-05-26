@@ -12,7 +12,7 @@ const (
 	Epoll_Create_Size = 1
 
 	Epoll_CTL_Listener = syscall.EPOLLIN | syscall.EPOLLET | syscall.EPOLLPRI
-	Epoll_CTL_Read     = syscall.EPOLLIN | syscall.EPOLLET | syscall.EPOLLPRI
+	Epoll_CTL_Read     = syscall.EPOLLIN | syscall.EPOLLET | syscall.EPOLLPRI | syscall.EPOLLRDHUP | syscall.EPOLLHUP | syscall.EPOLLERR
 )
 
 type Epoll struct {
@@ -104,17 +104,31 @@ func (e *Epoll) WaitEvent() {
 			}
 
 			for i := 0; i < n; i++ {
-				if events[i].Fd == int32(e.listenFd) {
-					e.revents <- event{
-						fd:    events[i].Fd,
-						event: Event_Type_Connect,
+				if (events[i].Events & syscall.EPOLLIN) > 0 {
+					if events[i].Fd == int32(e.listenFd) {
+						e.revents <- event{
+							fd:    events[i].Fd,
+							event: Event_Type_Connect,
+						}
+					} else {
+						e.revents <- event{
+							fd:    events[i].Fd,
+							event: Event_Type_In,
+						}
 					}
-				} else {
+				} else if (events[i].Events & syscall.EPOLLERR) > 0 {
 					e.revents <- event{
 						fd:    events[i].Fd,
-						event: Event_Type_In,
+						event: Event_Type_Error,
+					}
+				} else if (events[i].Events&syscall.EPOLLRDHUP) > 0 || (events[i].Events&syscall.EPOLLHUP) > 0 {
+					// EPOLLHUP: FIN has been received and sent.
+					e.revents <- event{
+						fd:    events[i].Fd,
+						event: Event_Type_Close,
 					}
 				}
+
 			}
 		}
 

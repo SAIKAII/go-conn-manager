@@ -2,6 +2,7 @@ package go_conn_manager
 
 import (
 	"golang.org/x/sys/unix"
+	"io"
 	"strconv"
 	"strings"
 	"sync"
@@ -103,14 +104,15 @@ func (p *Poll) WaitEvent() {
 }
 
 func (p *Poll) handleFds(fds []unix.PollFd, n int) {
+	fdCh := make(chan event, n)
 	for i := 0; i < n; i++ {
 		if fds[i].Revents == 0 {
 			continue
 		}
 
-		if fds[i].Revents == unix.POLLIN {
+		if (fds[i].Revents & unix.POLLIN) > 0 {
 			if fds[i].Fd == int32(p.listenFd) {
-				p.revents <- event{
+				fdCh <- event{
 					fd:    fds[i].Fd,
 					event: Event_Type_Connect,
 				}
@@ -120,22 +122,21 @@ func (p *Poll) handleFds(fds []unix.PollFd, n int) {
 					event: Event_Type_In,
 				}
 			}
-		} else if fds[i].Revents == unix.POLLERR {
+		} else if (fds[i].Revents & unix.POLLERR) > 0 {
 			p.revents <- event{
 				fd:    fds[i].Fd,
 				event: Event_Type_Error,
 			}
-		} else if fds[i].Revents == unix.POLLRDHUP {
-			p.revents <- event{
+		} else if (fds[i].Revents&unix.POLLRDHUP) > 0 || (fds[i].Revents&unix.POLLHUP) > 0 {
+			// POLLHUP: FIN has been received and sent.
+			fdCh <- event{
 				fd:    fds[i].Fd,
 				event: Event_Type_Close,
 			}
-		} else if fds[i].Revents == unix.POLLHUP {
-			// FIN has been received and sent.
-			p.conns.DelConn(int(fds[i].Fd))
-			delete(p.fds, fds[i].Fd)
 		}
 	}
+	close(fdCh)
+	p.handleConnect(fdCh)
 }
 
 func (p *Poll) AddRead(nfd int, c *Conn) error {
@@ -157,19 +158,10 @@ func (p *Poll) Del(nfd int) error {
 	return nil
 }
 
-func (p *Poll) handleConnect(fd int32) {
-	p.mu.Lock()
-	e := &unix.PollFd{
-		Fd:      fd,
-		Events:  Poll_Event_Read,
-		Revents: 0,
-	}
-	p.fds[fd] = e
-	p.mu.Unlock()
-}
-
-func (p *Poll) HandleEvent() error {
-	for ev := range p.revents {
+// handleConnect 处理新增连接与连接关闭
+func (p *Poll) handleConnect(fdCh <-chan event) {
+	// 该方法不需要加锁是因为这是WaitEvent的同步操作
+	for ev := range fdCh {
 		if ev.event == Event_Type_Connect {
 			nfd, sa, err := syscall.Accept(int(ev.fd))
 			if err != nil {
@@ -184,18 +176,36 @@ func (p *Poll) HandleEvent() error {
 			if err != nil {
 				continue
 			}
-		} else if ev.event == Event_Type_In {
+		} else if ev.event == Event_Type_Close {
+			p.Del(int(ev.fd))
+		}
+	}
+}
+
+func (p *Poll) HandleEvent() error {
+	for ev := range p.revents {
+		if ev.event == Event_Type_In {
 			err := UnpackFromFD(p.conns.GetConn(int(ev.fd)), p.handler.OnMessage)
-			if err != nil {
-				continue
+			if err != nil && err == io.EOF {
+				// 读取中检测到对方关闭了套接字
+				p.revents <- event{
+					fd:    ev.fd,
+					event: Event_Type_Close,
+				}
 			}
 		} else if ev.event == Event_Type_Error {
 			// In TCP, this typically means a RST has been received or sent.
 			p.handler.OnError(p.conns.GetConn(int(ev.fd)))
 			p.conns.DelConn(int(ev.fd))
+			// 这里的删除需要加锁是因为HandleEvent与WaitEvent是并发运行的
+			p.mu.Lock()
 			delete(p.fds, ev.fd)
+			p.mu.Unlock()
 		} else if ev.event == Event_Type_Close {
+			// 这里的删除需要加锁是因为HandleEvent与WaitEvent是并发运行的
+			p.mu.Lock()
 			p.Del(int(ev.fd))
+			p.mu.Unlock()
 		}
 	}
 	return nil
