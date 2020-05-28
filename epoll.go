@@ -1,6 +1,7 @@
 package go_conn_manager
 
 import (
+	"io"
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,10 +26,11 @@ type Epoll struct {
 	stop     chan struct{}
 }
 
-func NewEpoll() *Epoll {
+// NewEpoll 创建Epoll实例，interval指定检测长时间未使用的连接并关闭其
+func NewEpoll(interval time.Duration) *Epoll {
 	return &Epoll{
 		revents: make(chan event, 1024),
-		conns:   NewConnManager(),
+		conns:   NewConnManager(interval),
 		stop:    make(chan struct{}),
 	}
 }
@@ -87,6 +89,7 @@ func (e *Epoll) Init(ipAddr string, port int) error {
 		return err
 	}
 
+	go e.conns.CheckTimeout()
 	return nil
 }
 
@@ -94,6 +97,7 @@ func (e *Epoll) WaitEvent() {
 	for {
 		select {
 		case <-e.stop:
+			e.conns.StopCheck()
 			close(e.revents)
 			return
 		default:
@@ -159,14 +163,22 @@ func (e *Epoll) HandleEvent() error {
 			}
 		} else if ev.event == Event_Type_In {
 			err := UnpackFromFD(e.conns.GetConn(int(ev.fd)), e.handler.OnMessage)
-			if err != nil {
-				continue
+			if err != nil && err == io.EOF {
+				e.revents <- event{
+					fd:    int32(ev.fd),
+					event: Event_Type_Close,
+				}
 			}
+			e.conns.GetConn(int(ev.fd)).UpdateLastTime()
 		} else {
 
 		}
 	}
 	return nil
+}
+
+func (e *Epoll) Stop() {
+	e.stop <- struct{}{}
 }
 
 // AddRead 把套接字加入监听，创建conn，并调用OnConnect回调函数

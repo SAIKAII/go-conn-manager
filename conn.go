@@ -18,6 +18,10 @@ func (c *Conn) UpdateLastTime() {
 	c.lastTime = time.Now().Unix()
 }
 
+func (c *Conn) LastTime() int64 {
+	return c.lastTime
+}
+
 func (c *Conn) Close() {
 	syscall.Close(c.fd)
 }

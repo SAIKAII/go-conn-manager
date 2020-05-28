@@ -26,9 +26,10 @@ type Poll struct {
 	stop     chan struct{}
 }
 
-func NewPoll() *Poll {
+// NewPoll 创建Poll实例，interval指定检测长时间未使用的连接并关闭其
+func NewPoll(interval time.Duration) *Poll {
 	return &Poll{
-		conns:   NewConnManager(),
+		conns:   NewConnManager(interval),
 		fds:     make(map[int32]*unix.PollFd),
 		revents: make(chan event),
 		stop:    make(chan struct{}),
@@ -75,6 +76,8 @@ func (p *Poll) Init(ipAddr string, port int) error {
 		Events: Poll_Event_Listen,
 	}
 
+	go p.conns.CheckTimeout()
+
 	return nil
 }
 
@@ -91,6 +94,7 @@ func (p *Poll) WaitEvent() {
 
 		select {
 		case <-p.stop:
+			p.conns.StopCheck()
 			break
 		default:
 			n, err := unix.Poll(fds, -1)
@@ -193,6 +197,7 @@ func (p *Poll) HandleEvent() error {
 					event: Event_Type_Close,
 				}
 			}
+			p.conns.GetConn(int(ev.fd)).UpdateLastTime()
 		} else if ev.event == Event_Type_Error {
 			// In TCP, this typically means a RST has been received or sent.
 			p.handler.OnError(p.conns.GetConn(int(ev.fd)))
@@ -209,4 +214,8 @@ func (p *Poll) HandleEvent() error {
 		}
 	}
 	return nil
+}
+
+func (p *Poll) Stop() {
+	p.stop <- struct{}{}
 }

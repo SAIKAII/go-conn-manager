@@ -19,4 +19,5 @@ type multiplexing interface {
 	Init(ipAddr string, port int) error
 	WaitEvent()
 	HandleEvent() error
+	Stop()
 }

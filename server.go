@@ -19,3 +19,7 @@ func (s *server) Start(ipAddr string, port, headerLen, readMaxLen, writeMaxLen i
 	go s.multi.WaitEvent()
 	s.multi.HandleEvent()
 }
+
+func (s *server) Stop() {
+	s.multi.Stop()
+}

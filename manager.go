@@ -1,16 +1,25 @@
 package go_conn_manager
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 type ConnManager struct {
-	mu    sync.RWMutex
-	conns map[int]*Conn
+	mu      sync.RWMutex
+	conns   map[int]*Conn
+	ticker  *time.Ticker
+	elapsed int64
+	stop    chan struct{}
 }
 
 // NewConnManager 生成一个实例
-func NewConnManager() *ConnManager {
+func NewConnManager(interval time.Duration) *ConnManager {
 	return &ConnManager{
-		conns: make(map[int]*Conn),
+		conns:   make(map[int]*Conn),
+		ticker:  time.NewTicker(interval),
+		elapsed: interval.Milliseconds(),
+		stop:    make(chan struct{}),
 	}
 }
 
@@ -41,4 +50,33 @@ func (cm *ConnManager) DelConn(key int) {
 // GetConn 获取指定key关联的Conn实例
 func (cm *ConnManager) GetConn(key int) *Conn {
 	return cm.conns[key]
+}
+
+// CheckTimeout 把在指定时间内一次通信都没有的连接关闭，
+// 因为也许对方由于某些原因已经不使用该连接
+func (cm *ConnManager) CheckTimeout() {
+	for {
+		select {
+		case <-cm.ticker.C:
+			cm.check()
+		case <-cm.stop:
+			return
+		}
+	}
+}
+
+func (cm *ConnManager) check() {
+	for k, v := range cm.conns {
+		interval := time.Now().Unix() - v.LastTime()
+		if interval < (cm.elapsed / 1000) {
+			continue
+		}
+
+		delete(cm.conns, k)
+	}
+}
+
+// StopCheck 停止检查连接
+func (cm *ConnManager) StopCheck() {
+	cm.stop <- struct{}{}
 }
