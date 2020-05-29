@@ -22,16 +22,19 @@ type Epoll struct {
 	revents  chan event
 	conns    *ConnManager
 	handler  Handler
-	timeout  time.Duration
+	ticker   *time.Ticker
+	interval int64
 	stop     chan struct{}
 }
 
 // NewEpoll 创建Epoll实例，interval指定检测长时间未使用的连接并关闭其
 func NewEpoll(interval time.Duration) *Epoll {
 	return &Epoll{
-		revents: make(chan event, 1024),
-		conns:   NewConnManager(interval),
-		stop:    make(chan struct{}),
+		revents:  make(chan event, 1024),
+		conns:    NewConnManager(interval),
+		ticker:   time.NewTicker(interval),
+		interval: int64(interval.Seconds()),
+		stop:     make(chan struct{}),
 	}
 }
 
@@ -89,7 +92,7 @@ func (e *Epoll) Init(ipAddr string, port int) error {
 		return err
 	}
 
-	go e.conns.CheckTimeout()
+	go e.checkTimeout()
 	return nil
 }
 
@@ -97,7 +100,6 @@ func (e *Epoll) WaitEvent() {
 	for {
 		select {
 		case <-e.stop:
-			e.conns.StopCheck()
 			close(e.revents)
 			return
 		default:
@@ -178,7 +180,7 @@ func (e *Epoll) HandleEvent() error {
 }
 
 func (e *Epoll) Stop() {
-	e.stop <- struct{}{}
+	close(e.stop)
 }
 
 // AddRead 把套接字加入监听，创建conn，并调用OnConnect回调函数
@@ -208,4 +210,32 @@ func (e *Epoll) Del(nfd int) error {
 	e.conns.DelConn(nfd)
 
 	return nil
+}
+
+// checkTimeout 把在指定时间内一次通信都没有的连接关闭，
+// 因为也许对方由于某些原因已经不使用该连接
+func (e *Epoll) checkTimeout() {
+	for {
+		select {
+		case <-e.ticker.C:
+			e.check()
+		case <-e.stop:
+			break
+		}
+	}
+}
+
+func (e *Epoll) check() {
+	conns := e.conns.Conns()
+	for k, v := range conns {
+		interval := time.Now().Unix() - v.LastTime()
+		if interval < e.interval {
+			continue
+		}
+
+		e.revents <- event{
+			fd:    int32(k),
+			event: Event_Type_Close,
+		}
+	}
 }

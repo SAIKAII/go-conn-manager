@@ -22,17 +22,20 @@ type Poll struct {
 	conns    *ConnManager
 	fds      map[int32]*unix.PollFd
 	revents  chan event
-	timeout  time.Duration
+	ticker   *time.Ticker
+	interval int64
 	stop     chan struct{}
 }
 
 // NewPoll 创建Poll实例，interval指定检测长时间未使用的连接并关闭其
 func NewPoll(interval time.Duration) *Poll {
 	return &Poll{
-		conns:   NewConnManager(interval),
-		fds:     make(map[int32]*unix.PollFd),
-		revents: make(chan event),
-		stop:    make(chan struct{}),
+		conns:    NewConnManager(interval),
+		fds:      make(map[int32]*unix.PollFd),
+		revents:  make(chan event),
+		ticker:   time.NewTicker(interval),
+		interval: int64(interval.Seconds()),
+		stop:     make(chan struct{}),
 	}
 }
 
@@ -76,7 +79,7 @@ func (p *Poll) Init(ipAddr string, port int) error {
 		Events: Poll_Event_Listen,
 	}
 
-	go p.conns.CheckTimeout()
+	go p.checkTimeout()
 
 	return nil
 }
@@ -94,7 +97,6 @@ func (p *Poll) WaitEvent() {
 
 		select {
 		case <-p.stop:
-			p.conns.StopCheck()
 			break
 		default:
 			n, err := unix.Poll(fds, -1)
@@ -217,5 +219,33 @@ func (p *Poll) HandleEvent() error {
 }
 
 func (p *Poll) Stop() {
-	p.stop <- struct{}{}
+	close(p.stop)
+}
+
+// checkTimeout 把在指定时间内一次通信都没有的连接关闭，
+// 因为也许对方由于某些原因已经不使用该连接
+func (p *Poll) checkTimeout() {
+	for {
+		select {
+		case <-p.ticker.C:
+			p.check()
+		case <-p.stop:
+			break
+		}
+	}
+}
+
+func (p *Poll) check() {
+	conns := p.conns.Conns()
+	for k, v := range conns {
+		interval := time.Now().Unix() - v.LastTime()
+		if interval < p.interval {
+			continue
+		}
+
+		p.revents <- event{
+			fd:    int32(k),
+			event: Event_Type_Close,
+		}
+	}
 }
