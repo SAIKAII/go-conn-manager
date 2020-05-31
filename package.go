@@ -108,7 +108,7 @@ func PacketToPeer(c *Conn, data []byte) error {
 	}
 
 	writeBuffer := writeBufferPool.Get()
-	defer writeBufferPool.Put(writeBufferPool)
+	defer writeBufferPool.Put(writeBuffer)
 
 	var buffer = writeBuffer.([]byte)
 	// 写入数据长度
@@ -119,7 +119,7 @@ func PacketToPeer(c *Conn, data []byte) error {
 		return errors.New("数据拷贝发生错误")
 	}
 
-	_, err := syscall.Write(c.Fd(), buffer)
+	_, err := syscall.Write(c.Fd(), buffer[:PackageHeaderLen+dataLen])
 	if err != nil {
 		return err
 	}

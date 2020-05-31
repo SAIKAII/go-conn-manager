@@ -12,8 +12,8 @@ const (
 	Listen_Queue_Size = 1024
 	Epoll_Create_Size = 1
 
-	Epoll_CTL_Listener = syscall.EPOLLIN | syscall.EPOLLET | syscall.EPOLLPRI
-	Epoll_CTL_Read     = syscall.EPOLLIN | syscall.EPOLLET | syscall.EPOLLPRI | syscall.EPOLLRDHUP | syscall.EPOLLHUP | syscall.EPOLLERR
+	Epoll_CTL_Listener = syscall.EPOLLIN | -syscall.EPOLLET | syscall.EPOLLPRI
+	Epoll_CTL_Read     = syscall.EPOLLIN | -syscall.EPOLLET | syscall.EPOLLPRI | syscall.EPOLLRDHUP | syscall.EPOLLHUP | syscall.EPOLLERR
 )
 
 type Epoll struct {

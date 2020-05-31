@@ -17,7 +17,10 @@ func (*handler) OnConnect(c *manager.Conn) {
 
 func (*handler) OnMessage(c *manager.Conn, data []byte) {
 	log.Println("OnMessage, FD:", c.Fd(), "data:", string(data))
-	manager.PacketToPeer(c, data)
+	err := manager.PacketToPeer(c, data)
+	if err != nil {
+		log.Println(err)
+	}
 }
 func (*handler) OnClose(c *manager.Conn) error {
 	log.Println("OnClose:", c.Fd())
@@ -28,7 +31,7 @@ func (*handler) OnError(c *manager.Conn) {
 }
 
 func main() {
-	epoll := manager.NewEpoll(5 * time.Second)
+	epoll := manager.NewEpoll(10 * time.Second)
 	server := manager.NewServer(epoll)
 	go server.Start("127.0.0.1", 8081, 2, 512, 512, &handler{})
 	c := make(chan os.Signal)
