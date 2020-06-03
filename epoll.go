@@ -165,14 +165,16 @@ func (e *Epoll) HandleEvent() error {
 				continue
 			}
 		} else if ev.event == Event_Type_In {
-			err := UnpackFromFD(e.conns.GetConn(int(ev.fd)), e.handler.OnMessage)
-			if err != nil && err == io.EOF {
-				e.revents <- event{
-					fd:    int32(ev.fd),
-					event: Event_Type_Close,
+			go func(ev event) {
+				err := UnpackFromFD(e.conns.GetConn(int(ev.fd)), e.handler.OnMessage)
+				if err != nil && err == io.EOF {
+					e.revents <- event{
+						fd:    int32(ev.fd),
+						event: Event_Type_Close,
+					}
 				}
-			}
-			e.conns.GetConn(int(ev.fd)).UpdateLastTime()
+				e.conns.GetConn(int(ev.fd)).UpdateLastTime()
+			}(ev)
 		} else {
 
 		}

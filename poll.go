@@ -191,15 +191,17 @@ func (p *Poll) handleConnect(fdCh <-chan event) {
 func (p *Poll) HandleEvent() error {
 	for ev := range p.revents {
 		if ev.event == Event_Type_In {
-			err := UnpackFromFD(p.conns.GetConn(int(ev.fd)), p.handler.OnMessage)
-			if err != nil && err == io.EOF {
-				// 读取中检测到对方关闭了套接字
-				p.revents <- event{
-					fd:    ev.fd,
-					event: Event_Type_Close,
+			go func(ev event) {
+				err := UnpackFromFD(p.conns.GetConn(int(ev.fd)), p.handler.OnMessage)
+				if err != nil && err == io.EOF {
+					// 读取中检测到对方关闭了套接字
+					p.revents <- event{
+						fd:    ev.fd,
+						event: Event_Type_Close,
+					}
 				}
-			}
-			p.conns.GetConn(int(ev.fd)).UpdateLastTime()
+				p.conns.GetConn(int(ev.fd)).UpdateLastTime()
+			}(ev)
 		} else if ev.event == Event_Type_Error {
 			// In TCP, this typically means a RST has been received or sent.
 			p.handler.OnError(p.conns.GetConn(int(ev.fd)))
