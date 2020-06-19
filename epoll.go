@@ -175,8 +175,11 @@ func (e *Epoll) HandleEvent() error {
 				}
 				e.conns.GetConn(int(ev.fd)).UpdateLastTime()
 			}(ev)
-		} else {
-
+		} else if ev.event == Event_Type_Error {
+			// In TCP, this typically means a RST has been received or sent.
+			e.handler.OnError(e.conns.GetConn(int(ev.fd)))
+			e.conns.DelConn(int(ev.fd))
+			syscall.EpollCtl(e.epollFd, syscall.EPOLL_CTL_DEL, int(ev.fd), nil)
 		}
 	}
 	return nil
