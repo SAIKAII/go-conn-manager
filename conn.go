@@ -11,6 +11,7 @@ type Conn struct {
 	mu       sync.Mutex
 	fd       int
 	SockAddr syscall.Sockaddr
+	data     interface{}
 	lastTime int64 // 该套接字最后一次通信时间
 }
 
@@ -49,4 +50,12 @@ func (c *Conn) Port() int {
 	}
 
 	return 0
+}
+
+func (c *Conn) Data() interface{} {
+	return c.data
+}
+
+func (c *Conn) SetData(d interface{}) {
+	c.data = d
 }
